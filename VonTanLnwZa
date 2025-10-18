@@ -1,0 +1,226 @@
+-- Modern UI (UI-only) for mobile-friendly testing
+-- Fires BindableEvents instead of directly toggling aimbot logic.
+-- Safe: does not touch aim/target code.
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- BindableEvents (create once in PlayerGui so other scripts can listen)
+local function getOrCreateEvent(name)
+    local e = playerGui:FindFirstChild(name)
+    if not e then
+        e = Instance.new("BindableEvent")
+        e.Name = name
+        e.Parent = playerGui
+    end
+    return e
+end
+
+local AimToggleEvent = getOrCreateEvent("AimToggleEvent")        -- fires: AimToggleEvent:Fire(boolean)
+local FovChangedEvent = getOrCreateEvent("FovChangedEvent")      -- fires: FovChangedEvent:Fire(number)
+local ResetRequested = getOrCreateEvent("AimbotUIReset")         -- fires: ResetRequested:Fire()
+local CenterRequested = getOrCreateEvent("AimbotUICenter")       -- fires: CenterRequested:Fire()
+
+-- Theme (adjustable)
+local theme = {
+    Accent = Color3.fromRGB(0, 162, 255),
+    Bg = Color3.fromRGB(18,18,20),
+    Panel = Color3.fromRGB(28,28,30),
+    Text = Color3.fromRGB(240,240,245),
+    Muted = Color3.fromRGB(160,160,170),
+}
+
+-- Utility to create instances
+local function new(class, props)
+    local o = Instance.new(class)
+    if props then
+        for k,v in pairs(props) do o[k] = v end
+    end
+    return o
+end
+
+-- ScreenGui
+local screenGui = new("ScreenGui", {Name = "ModernAimbotUI", ResetOnSpawn = false, DisplayOrder = 50})
+screenGui.Parent = playerGui
+
+-- Container (bottom-left, but responsive using Scale)
+local container = new("Frame", {
+    Name = "Container",
+    AnchorPoint = Vector2.new(0, 1),
+    Position = UDim2.new(0, 0.02, 1, -0.12 * workspace.CurrentCamera.ViewportSize.Y), -- approximate
+    Size = UDim2.new(0, 320, 0, 172),
+    BackgroundColor3 = theme.Panel,
+    BorderSizePixel = 0,
+    ZIndex = 2,
+})
+container.Parent = screenGui
+new("UICorner", {Parent = container, CornerRadius = UDim.new(0,14)})
+-- subtle drop shadow using UIStroke + gradient
+local stroke = new("UIStroke", {Parent = container, Color = Color3.fromRGB(0,0,0), Transparency = 0.7, Thickness = 1})
+
+-- Header
+local header = new("Frame", {Parent = container, Size = UDim2.new(1, -12, 0, 44), Position = UDim2.new(0, 6, 0, 6), BackgroundTransparency = 1})
+new("UICorner", {Parent = header, CornerRadius = UDim.new(0,10)})
+local title = new("TextLabel", {
+    Parent = header, Size = UDim2.new(1,0,1,0),
+    BackgroundTransparency = 1, Text = "Aimbot — UI (Preview)",
+    TextColor3 = theme.Text, Font = Enum.Font.GothamBold, TextSize = 15,
+    TextXAlignment = Enum.TextXAlignment.Left
+})
+-- small pill accent
+local pill = new("Frame", {Parent = header, Size = UDim2.new(0,48,0,6), Position = UDim2.new(1, -54, 0, 6), BackgroundColor3 = theme.Accent})
+new("UICorner", {Parent = pill, CornerRadius = UDim.new(0,6)})
+
+-- Row for controls
+local controls = new("Frame", {Parent = container, Size = UDim2.new(1, -12, 0, 60), Position = UDim2.new(0,6,0,56), BackgroundTransparency = 1})
+-- Toggle button (modern pill)
+local toggle = new("TextButton", {
+    Parent = controls, Name = "Toggle", Size = UDim2.new(0, 130, 0, 44), Position = UDim2.new(0,0,0,0),
+    BackgroundColor3 = theme.Bg, BorderSizePixel = 0, Text = "AIM: OFF", TextColor3 = theme.Text,
+    Font = Enum.Font.GothamSemibold, TextSize = 14, AutoButtonColor = false
+})
+new("UICorner", {Parent = toggle, CornerRadius = UDim.new(0,12)})
+-- subtle indicator circle
+local indicator = new("Frame", {Parent = toggle, Size = UDim2.new(0,36,0,36), Position = UDim2.new(1, -44, 0.5, -18), BackgroundColor3 = Color3.fromRGB(60,60,64)})
+new("UICorner", {Parent = indicator, CornerRadius = UDim.new(1,18)})
+local indInner = new("Frame", {Parent = indicator, Size = UDim2.new(0,16,0,16), Position = UDim2.new(0.5,-8,0.5,-8), BackgroundColor3 = Color3.fromRGB(240,240,240)})
+new("UICorner", {Parent = indInner, CornerRadius = UDim.new(1,8)})
+-- small label for team toggle
+local teamBtn = new("TextButton", {
+    Parent = controls, Name = "Team", Size = UDim2.new(0, 150, 0, 36), Position = UDim2.new(0, 140, 0, 4),
+    BackgroundColor3 = theme.Bg, BorderSizePixel = 0, Text = "Ignore Team: ON", TextColor3 = theme.Muted,
+    Font = Enum.Font.Gotham, TextSize = 12, AutoButtonColor = false
+})
+new("UICorner", {Parent = teamBtn, CornerRadius = UDim.new(0,10)})
+
+-- FOV slider area (uses Scale)
+local fovLabel = new("TextLabel", {Parent = container, Size = UDim2.new(1, -16, 0, 18), Position = UDim2.new(0,8,0,118), BackgroundTransparency = 1, Text = "FOV: 120 px", TextColor3 = theme.Text, Font = Enum.Font.Gotham, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left})
+local fovSlider = new("Frame", {Parent = container, Size = UDim2.new(1, -16, 0, 28), Position = UDim2.new(0,8,0,136), BackgroundColor3 = theme.Bg, BorderSizePixel = 0})
+new("UICorner", {Parent = fovSlider, CornerRadius = UDim.new(0,10)})
+local fovFill = new("Frame", {Parent = fovSlider, Size = UDim2.new(0.2, 0, 1, 0), BackgroundColor3 = theme.Accent})
+new("UICorner", {Parent = fovFill, CornerRadius = UDim.new(0,10)})
+local fovHandle = new("ImageButton", {Parent = fovSlider, Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(0.2, -12, 0.5, -12), BackgroundColor3 = Color3.fromRGB(255,255,255), AutoButtonColor = false, Image = ""})
+new("UICorner", {Parent = fovHandle, CornerRadius = UDim.new(1,12)})
+
+-- Crosshair preview (small, subtle) - clickable to center
+local crossPreview = new("TextButton", {
+    Parent = container, Name = "CrossPreview", Size = UDim2.new(0, 46, 0, 46), Position = UDim2.new(1, -62, 0, 12),
+    BackgroundColor3 = Color3.fromRGB(24,24,26), BorderSizePixel = 0, Text = "", AutoButtonColor = false
+})
+new("UICorner", {Parent = crossPreview, CornerRadius = UDim.new(0,10)})
+local crossH = new("Frame", {Parent = crossPreview, Size = UDim2.new(0.7,0,0,3), Position = UDim2.new(0.15,0,0.5,-1.5), BackgroundColor3 = theme.Accent, BorderSizePixel = 0})
+local crossV = new("Frame", {Parent = crossPreview, Size = UDim2.new(0,3,0.7,0), Position = UDim2.new(0.5,-1.5,0.15,0), BackgroundColor3 = theme.Accent, BorderSizePixel = 0})
+
+-- Reset small button under preview
+local resetBtn = new("TextButton", {Parent = container, Size = UDim2.new(0,46,0,28), Position = UDim2.new(1, -62, 0, 64), BackgroundColor3 = theme.Bg, Text = "Reset", TextColor3 = theme.Muted, Font = Enum.Font.Gotham, TextSize = 12, AutoButtonColor = false})
+new("UICorner", {Parent = resetBtn, CornerRadius = UDim.new(0,8)})
+
+-- Initial state
+local state = {
+    enabled = false,
+    teamIgnore = true,
+    fov = 120
+}
+
+-- Helpers for animations
+local function pulseIndicator(on)
+    local goal = on and theme.Accent or Color3.fromRGB(60,60,64)
+    TweenService:Create(indicator, TweenInfo.new(0.18, Enum.EasingStyle.Quad), {BackgroundColor3 = goal}):Play()
+end
+
+local function updateToggleUI()
+    toggle.Text = "AIM: " .. (state.enabled and "ON" or "OFF")
+    local innerGoal = state.enabled and Color3.fromRGB(255,255,255) or Color3.fromRGB(200,200,200)
+    TweenService:Create(indInner, TweenInfo.new(0.18), {BackgroundColor3 = innerGoal}):Play()
+    pulseIndicator(state.enabled)
+    -- fire event to main script (UI-only)
+    AimToggleEvent:Fire(state.enabled)
+end
+
+local function updateTeamUI()
+    teamBtn.Text = "Ignore Team: " .. (state.teamIgnore and "ON" or "OFF")
+    teamBtn.TextColor3 = state.teamIgnore and theme.Text or theme.Muted
+end
+
+local function updateFovUI()
+    local rel = math.clamp((state.fov - 20) / (600 - 20), 0, 1)
+    fovFill:TweenSize(UDim2.new(rel, 0, 1, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.12, true)
+    fovHandle:TweenPosition(UDim2.new(rel, -12, 0.5, -12), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.12, true)
+    fovLabel.Text = "FOV: " .. tostring(state.fov) .. " px"
+    FovChangedEvent:Fire(state.fov)
+end
+
+-- Interactions
+toggle.MouseButton1Click:Connect(function()
+    state.enabled = not state.enabled
+    updateToggleUI()
+end)
+
+teamBtn.MouseButton1Click:Connect(function()
+    state.teamIgnore = not state.teamIgnore
+    -- subtle flash
+    TweenService:Create(teamBtn, TweenInfo.new(0.12), {BackgroundColor3 = theme.Accent}):Play()
+    wait(0.12)
+    teamBtn.BackgroundColor3 = theme.Bg
+    updateTeamUI()
+end)
+
+-- Slider drag
+local dragging = false
+local function sliderUpdateFromX(x)
+    local absX = fovSlider.AbsolutePosition.X
+    local width = fovSlider.AbsoluteSize.X
+    local rel = math.clamp((x - absX) / width, 0, 1)
+    state.fov = math.floor(20 + rel * (600 - 20))
+    updateFovUI()
+end
+
+fovHandle.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
+fovSlider.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        sliderUpdateFromX(input.Position.X)
+        dragging = true
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+        sliderUpdateFromX(input.Position.X)
+    end
+end)
+
+-- Center & Reset fire events other scripts can listen to
+crossPreview.MouseButton1Click:Connect(function()
+    CenterRequested:Fire()
+end)
+resetBtn.MouseButton1Click:Connect(function()
+    -- reset local state then broadcast ResetRequested
+    state.fov = 120
+    state.enabled = false
+    state.teamIgnore = true
+    updateFovUI()
+    updateToggleUI()
+    updateTeamUI()
+    ResetRequested:Fire()
+end)
+
+-- initial render
+updateFovUI()
+updateTeamUI()
+updateToggleUI()
+
+-- Print to help debugging
+print("[ModernAimbotUI] UI-only loaded. Listening events: AimToggleEvent, FovChangedEvent, AimbotUIReset, AimbotUICenter (in PlayerGui).")
