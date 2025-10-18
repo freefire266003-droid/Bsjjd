@@ -1,0 +1,212 @@
+-- Modern Mobile-Friendly Aimbot UI v2 (LocalScript)
+-- FEATURES: Auto-hide UI, Dark/Light theme, Smooth easing aim
+-- FOR EDUCATIONAL / LOCAL TESTING ONLY
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- ===== CONFIG =====
+local cfg = {
+    Enabled = false,
+    AimKey = Enum.KeyCode.E,
+    FOV = 120,
+    Smoothness = 0.28,
+    TargetPart = "Head",
+    TeamCheck = true,
+    Prediction = false,
+    ProjectileSpeed = 120,
+    UITheme = "Dark", -- Dark or Light
+    AutoHide = true,
+}
+
+-- Theme colors
+local Themes = {
+    Dark = {Accent = Color3.fromRGB(0,162,255), Bg = Color3.fromRGB(24,24,26), Panel = Color3.fromRGB(30,30,34), Text = Color3.fromRGB(235,235,235)},
+    Light = {Accent = Color3.fromRGB(0,162,255), Bg = Color3.fromRGB(240,240,240), Panel = Color3.fromRGB(250,250,250), Text = Color3.fromRGB(30,30,30)}
+}
+
+local function ThemeColor(key)
+    return Themes[cfg.UITheme][key]
+end
+
+-- ===== UTILS =====
+local function new(name,class,props)
+    local obj = Instance.new(class)
+    obj.Name = name
+    if props then
+        for k,v in pairs(props) do obj[k]=v end
+    end
+    return obj
+end
+
+-- ===== BUILD UI =====
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+local screenGui = new("AimbotScreenGui","ScreenGui",{ResetOnSpawn=false, DisplayOrder=50})
+screenGui.Parent = playerGui
+
+local container = new("Frame","Container",{
+    Size=UDim2.new(0,300,0,170),
+    Position=UDim2.new(0,14,1,-186),
+    AnchorPoint=Vector2.new(0,0),
+    BackgroundColor3=ThemeColor("Panel"),
+    BorderSizePixel=0
+})
+container.Parent = screenGui
+new("UICorner","Corner",{Parent=container, CornerRadius=UDim.new(0,14)})
+
+-- Header + title
+local header = new("Frame","Header",{Size=UDim2.new(1,-12,0,40),Position=UDim2.new(0,6,0,6),BackgroundTransparency=1,Parent=container})
+local title = new("TextLabel","Title",{Parent=header,Size=UDim2.new(1,0,1,0),BackgroundTransparency=1,Text="Aimbot v2",TextColor3=ThemeColor("Text"),Font=Enum.Font.GothamBold,TextSize=16,TextXAlignment=Enum.TextXAlignment.Left})
+
+-- Toggle button
+local toggle = new("TextButton","Toggle",{Parent=container,Size=UDim2.new(0,120,0,40),Position=UDim2.new(0,6,0,56),BackgroundColor3=ThemeColor("Bg"),BorderSizePixel=0,Text="Aim: OFF",TextColor3=ThemeColor("Text"),Font=Enum.Font.GothamSemibold,TextSize=14})
+new("UICorner","ToggleCorner",{Parent=toggle, CornerRadius=UDim.new(0,10)})
+
+-- Theme switch button
+local themeBtn = new("TextButton","ThemeBtn",{Parent=container,Size=UDim2.new(0,60,0,28),Position=UDim2.new(1,-70,0,8),BackgroundColor3=ThemeColor("Bg"),Text="Theme",Font=Enum.Font.Gotham,TextSize=12,TextColor3=ThemeColor("Text")})
+new("UICorner","ThemeCorner",{Parent=themeBtn,CornerRadius=UDim.new(0,8)})
+
+-- Crosshair
+local crosshair = new("Frame","Crosshair",{Parent=screenGui,Size=UDim2.new(0,32,0,32),Position=UDim2.new(0.5,0,0.5,0),AnchorPoint=Vector2.new(0.5,0.5),BackgroundTransparency=1})
+local chLineH = new("Frame","h",{Parent=crosshair,Size=UDim2.new(1,-10,0,3),Position=UDim2.new(0,5,0.5,-1.5),BackgroundColor3=ThemeColor("Accent"),BorderSizePixel=0})
+local chLineV = new("Frame","v",{Parent=crosshair,Size=UDim2.new(0,3,1,-10),Position=UDim2.new(0.5,-1.5,0,5),BackgroundColor3=ThemeColor("Accent"),BorderSizePixel=0})
+crosshair.Visible=false
+
+-- ===== UI INTERACTIONS =====
+local function setEnabled(val)
+    cfg.Enabled=val
+    toggle.Text="Aim: "..(val and "ON" or "OFF")
+    crosshair.Visible=val
+end
+toggle.MouseButton1Click:Connect(function() setEnabled(not cfg.Enabled) end)
+
+-- Theme switch
+themeBtn.MouseButton1Click:Connect(function()
+    cfg.UITheme = cfg.UITheme=="Dark" and "Light" or "Dark"
+    container.BackgroundColor3 = ThemeColor("Panel")
+    toggle.BackgroundColor3 = ThemeColor("Bg")
+    toggle.TextColor3 = ThemeColor("Text")
+    themeBtn.BackgroundColor3 = ThemeColor("Bg")
+    themeBtn.TextColor3 = ThemeColor("Text")
+    chLineH.BackgroundColor3 = ThemeColor("Accent")
+    chLineV.BackgroundColor3 = ThemeColor("Accent")
+end)
+
+-- Auto-hide UI after idle
+if cfg.AutoHide then
+    local uiVisible = true
+    local lastInput = tick()
+    UserInputService.InputBegan:Connect(function()
+        lastInput = tick()
+        if not uiVisible then
+            uiVisible=true
+            container:TweenPosition(UDim2.new(0,14,1,-186),"Out","Quad",0.3,true)
+        end
+    end)
+    RunService.RenderStepped:Connect(function()
+        if uiVisible and tick()-lastInput>3 then
+            uiVisible=false
+            container:TweenPosition(UDim2.new(0,14,1,-140),"Out","Quad",0.3,true)
+        end
+    end)
+end
+
+-- Crosshair drag for mobile
+local chDragging=false
+local chStart, chOrig=Vector2.new(),Vector2.new()
+crosshair.InputBegan:Connect(function(input)
+    if input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseButton1 then
+        chDragging=true
+        chStart=Vector2.new(input.Position.X,input.Position.Y)
+        local absPos=crosshair.AbsolutePosition+crosshair.AbsoluteSize/2
+        chOrig=Vector2.new(absPos.X,absPos.Y)
+        input.Changed:Connect(function()
+            if input.UserInputState==Enum.UserInputState.End then chDragging=false end
+        end)
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if chDragging and (input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseMovement) then
+        local delta=Vector2.new(input.Position.X,input.Position.Y)-chStart
+        local newPos=chOrig+delta
+        local sx,sy=Camera.ViewportSize.X,Camera.ViewportSize.Y
+        newPos=Vector2.new(math.clamp(newPos.X,10,sx-10),math.clamp(newPos.Y,10,sy-10))
+        crosshair.Position=UDim2.new(0,newPos.X,0,newPos.Y)
+    end
+end)
+
+-- ===== AIMBOT CORE (Easing smoothing) =====
+local function isValidTarget(p)
+    if not p or not p.Character then return false end
+    local humanoid=p.Character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health<=0 then return false end
+    if cfg.TeamCheck and LocalPlayer.Team and p.Team and LocalPlayer.Team==p.Team then return false end
+    return true
+end
+
+local function predictPosition(part,origin)
+    if not cfg.Prediction then return part.Position end
+    local vel=part.AssemblyLinearVelocity or Vector3.new()
+    local dist=(part.Position-origin).Magnitude
+    local t=0
+    if cfg.ProjectileSpeed>0 then t=dist/cfg.ProjectileSpeed end
+    return part.Position+vel*t
+end
+
+local function getAimRef()
+    if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
+        return Vector2.new(crosshair.AbsolutePosition.X+crosshair.AbsoluteSize.X/2,crosshair.AbsolutePosition.Y+crosshair.AbsoluteSize.Y/2)
+    else
+        local mouse=LocalPlayer:GetMouse()
+        return Vector2.new(mouse.X,mouse.Y)
+    end
+end
+
+local function getClosestTarget()
+    local best=nil
+    local bestDist=cfg.FOV
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return nil end
+    local ref=getAimRef()
+    for _,p in pairs(Players:GetPlayers()) do
+        if p~=LocalPlayer and isValidTarget(p) then
+            local part=p.Character:FindFirstChild(cfg.TargetPart) or p.Character:FindFirstChild("HumanoidRootPart")
+            if part then
+                local vp=Camera:WorldToViewportPoint(part.Position)
+                if vp.Z>0 then
+                    local screenPos=Vector2.new(vp.X,vp.Y)
+                    local dist=(screenPos-ref).Magnitude
+                    if dist<=cfg.FOV and dist<bestDist then bestDist=dist; best=p end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function aimAtPart(part)
+    if not part or not Camera then return end
+    local origin=Camera.CFrame.Position
+    local target=predictPosition(part,origin)
+    local desired=(target-origin).Unit
+    -- Easing smoothing
+    local curLook=Camera.CFrame.LookVector
+    local alpha=math.clamp(cfg.Smoothness,0.01,1)
+    -- easing easeOutQuad
+    local eased=Vector3.new(
+        curLook.X + (desired.X - curLook.X)*(alpha^0.5),
+        curLook.Y + (desired.Y - curLook.Y)*(alpha^0.5),
+        curLook.Z + (desired.Z - curLook.Z)*(alpha^0.5)
+    )
+    Camera.CFrame=CFrame.new(origin,origin+eased.Unit)
+end
+
+RunService.RenderStepped:Connect(function()
+    if cfg.Enabled then
+        local target=getClosestTarget()
+        if target and target.Character then
+            local part=
