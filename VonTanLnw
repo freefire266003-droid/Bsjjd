@@ -1,0 +1,410 @@
+-- Modern Mobile-Friendly Aimbot UI (LocalScript)
+-- FOR EDUCATIONAL / LOCAL TESTING ONLY
+-- Put in StarterPlayer -> StarterPlayerScripts
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- ===== CONFIG (ปรับตามต้องการ) =====
+local cfg = {
+    Enabled = false,
+    AimKey = Enum.KeyCode.E,
+    FOV = 120,
+    Smoothness = 0.28,
+    TargetPart = "Head",
+    MaxDistance = 1000,
+    TeamCheck = true,
+    Prediction = false,
+    ProjectileSpeed = 120,
+    UITheme = {
+        Accent = Color3.fromRGB(0, 162, 255),
+        Bg = Color3.fromRGB(24,24,26),
+        PanelAccent = Color3.fromRGB(30,30,34),
+        Text = Color3.fromRGB(235,235,235)
+    }
+}
+-- =====================================
+
+-- Utility
+local function new(name, class, props)
+    local obj = Instance.new(class)
+    obj.Name = name
+    if props then
+        for k,v in pairs(props) do
+            obj[k] = v
+        end
+    end
+    return obj
+end
+
+-- ===== BUILD UI =====
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+local screenGui = new("AimbotScreenGui", "ScreenGui", {ResetOnSpawn = false, DisplayOrder = 50})
+screenGui.Parent = playerGui
+
+-- Main container (floating bottom-left on mobile)
+local container = new("Container", "Frame", {
+    Size = UDim2.new(0, 300, 0, 170),
+    Position = UDim2.new(0, 14, 1, -186),
+    AnchorPoint = Vector2.new(0, 0),
+    BackgroundColor3 = cfg.UITheme.PanelAccent,
+    BackgroundTransparency = 0,
+    BorderSizePixel = 0,
+    Visible = true,
+})
+container.Parent = screenGui
+new("Corner", "UICorner", {Parent = container, CornerRadius = UDim.new(0,14)})
+new("Shadow", "UIStroke", {Parent = container, Color = Color3.fromRGB(0,0,0), Transparency = 0.7, Thickness = 1})
+
+-- Header
+local header = new("Header", "Frame", {
+    Size = UDim2.new(1, -12, 0, 40),
+    Position = UDim2.new(0, 6, 0, 6),
+    BackgroundTransparency = 1,
+    Parent = container
+})
+local title = new("Title", "TextLabel", {
+    Parent = header,
+    Size = UDim2.new(1,0,1,0),
+    BackgroundTransparency = 1,
+    Text = "Aimbot (Test UI)",
+    TextColor3 = cfg.UITheme.Text,
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    TextXAlignment = Enum.TextXAlignment.Left
+})
+
+-- Nice accent bar at top
+local accent = new("Accent", "Frame", {
+    Parent = container,
+    Size = UDim2.new(0, 48, 0, 6),
+    Position = UDim2.new(0, 8, 0, 48),
+    BackgroundColor3 = cfg.UITheme.Accent,
+})
+new("Corner2", "UICorner", {Parent = accent, CornerRadius = UDim.new(0,6)})
+
+-- Toggle switch (big, touch-friendly)
+local toggle = new("Toggle", "TextButton", {
+    Parent = container,
+    Size = UDim2.new(0, 120, 0, 40),
+    Position = UDim2.new(0, 6, 0, 56),
+    BackgroundColor3 = Color3.fromRGB(16,16,18),
+    BorderSizePixel = 0,
+    Text = "Aim: OFF",
+    TextColor3 = cfg.UITheme.Text,
+    Font = Enum.Font.GothamSemibold,
+    TextSize = 14,
+})
+new("ToggleCorner", "UICorner", {Parent = toggle, CornerRadius = UDim.new(0,10)})
+local toggleAccent = new("ToggleAccent", "Frame", {
+    Parent = toggle,
+    Size = UDim2.new(0, 40, 0, 28),
+    Position = UDim2.new(1, -46, 0, 6),
+    BackgroundColor3 = Color3.fromRGB(48,48,50),
+})
+new("ToggleAccentCorner", "UICorner", {Parent = toggleAccent, CornerRadius = UDim.new(0,8)})
+
+-- Team check button
+local teamBtn = new("Team", "TextButton", {
+    Parent = container,
+    Size = UDim2.new(0, 150, 0, 28),
+    Position = UDim2.new(0, 138, 0, 62),
+    BackgroundColor3 = Color3.fromRGB(20,20,22),
+    BorderSizePixel = 0,
+    Text = "Ignore Team: ON",
+    TextColor3 = cfg.UITheme.Text,
+    Font = Enum.Font.Gotham,
+    TextSize = 12,
+})
+new("TeamCorner", "UICorner", {Parent = teamBtn, CornerRadius = UDim.new(0,8)})
+
+-- FOV slider (custom)
+local fovLabel = new("FovLabel", "TextLabel", {
+    Parent = container,
+    Size = UDim2.new(1, -16, 0, 18),
+    Position = UDim2.new(0, 8, 0, 106),
+    BackgroundTransparency = 1,
+    Text = "FOV: "..cfg.FOV.." px",
+    TextColor3 = cfg.UITheme.Text,
+    Font = Enum.Font.Gotham,
+    TextSize = 13,
+    TextXAlignment = Enum.TextXAlignment.Left
+})
+
+local fovSlider = new("FovSlider", "Frame", {
+    Parent = container,
+    Size = UDim2.new(1, -16, 0, 28),
+    Position = UDim2.new(0, 8, 0, 126),
+    BackgroundColor3 = Color3.fromRGB(16,16,18),
+    BorderSizePixel = 0,
+})
+new("FovCorner", "UICorner", {Parent = fovSlider, CornerRadius = UDim.new(0,8)})
+local fovFill = new("Fill", "Frame", {
+    Parent = fovSlider,
+    Size = UDim2.new(0, (cfg.FOV/600), 1, 0), -- initial proportion (600 max)
+    BackgroundColor3 = cfg.UITheme.Accent,
+    BorderSizePixel = 0,
+})
+new("FillCorner", "UICorner", {Parent = fovFill, CornerRadius = UDim.new(0,8)})
+local fovHandle = new("Handle", "Frame", {
+    Parent = fovSlider,
+    Size = UDim2.new(0, 18, 0, 18),
+    Position = UDim2.new(0, 0, 0.5, -9),
+    BackgroundColor3 = Color3.fromRGB(235,235,235),
+})
+new("HandleCorner", "UICorner", {Parent = fovHandle, CornerRadius = UDim.new(0,9)})
+
+-- Crosshair center / controls (small floating)
+local centerBtn = new("CenterBtn", "TextButton", {
+    Parent = container,
+    Size = UDim2.new(0, 60, 0, 28),
+    Position = UDim2.new(1, -70, 0, 8),
+    BackgroundColor3 = Color3.fromRGB(18,18,20),
+    Text = "Center",
+    Font = Enum.Font.Gotham,
+    TextSize = 12,
+    TextColor3 = cfg.UITheme.Text,
+})
+new("CenterCorner", "UICorner", {Parent = centerBtn, CornerRadius = UDim.new(0,8)})
+
+local resetBtn = new("ResetBtn", "TextButton", {
+    Parent = container,
+    Size = UDim2.new(0, 60, 0, 28),
+    Position = UDim2.new(1, -70, 0, 40),
+    BackgroundColor3 = Color3.fromRGB(18,18,20),
+    Text = "Reset",
+    Font = Enum.Font.Gotham,
+    TextSize = 12,
+    TextColor3 = cfg.UITheme.Text,
+})
+new("ResetCorner", "UICorner", {Parent = resetBtn, CornerRadius = UDim.new(0,8)})
+
+-- Crosshair (draggable) displayed on screen (large, sleek)
+local crosshair = new("Crosshair", "Frame", {
+    Parent = screenGui,
+    Size = UDim2.new(0, 32, 0, 32),
+    Position = UDim2.new(0.5, 0, 0.5, 0),
+    AnchorPoint = Vector2.new(0.5,0.5),
+    BackgroundTransparency = 1,
+})
+local chLineH = new("h", "Frame", {
+    Parent = crosshair, Size = UDim2.new(1, -10, 0, 3), Position = UDim2.new(0,5,0.5,-1.5),
+    BackgroundColor3 = cfg.UITheme.Accent, BorderSizePixel = 0
+})
+local chLineV = new("v", "Frame", {
+    Parent = crosshair, Size = UDim2.new(0, 3, 1, -10), Position = UDim2.new(0.5,-1.5,0,5),
+    BackgroundColor3 = cfg.UITheme.Accent, BorderSizePixel = 0
+})
+chLineH.BorderSizePixel = 0; chLineV.BorderSizePixel = 0
+crosshair.Visible = false
+
+-- Apply slight fade-in tween for container
+local tweenInfo = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+TweenService:Create(container, tweenInfo, {BackgroundTransparency = 0}):Play()
+
+-- ===== UI INTERACTIONS =====
+local function setEnabled(val)
+    cfg.Enabled = val
+    toggle.Text = "Aim: " .. (val and "ON" or "OFF")
+    crosshair.Visible = val
+    -- accent animation
+    local goalColor = val and cfg.UITheme.Accent or Color3.fromRGB(48,48,50)
+    TweenService:Create(toggleAccent, TweenInfo.new(0.2), {BackgroundColor3 = goalColor}):Play()
+end
+
+toggle.MouseButton1Click:Connect(function()
+    setEnabled(not cfg.Enabled)
+end)
+
+teamBtn.MouseButton1Click:Connect(function()
+    cfg.TeamCheck = not cfg.TeamCheck
+    teamBtn.Text = "Ignore Team: " .. (cfg.TeamCheck and "ON" or "OFF")
+    -- subtle color flash
+    local flash = TweenService:Create(teamBtn, TweenInfo.new(0.12), {BackgroundColor3 = cfg.UITheme.Accent})
+    local back = TweenService:Create(teamBtn, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(20,20,22)})
+    flash:Play(); flash.Completed:Wait(); back:Play()
+end)
+
+-- FOV slider drag handling (touch & mouse)
+local dragging = false
+local sliderAbs = fovSlider.AbsoluteSize.X
+local function sliderUpdateFromPos(x)
+    local rel = math.clamp((x - fovSlider.AbsolutePosition.X) / fovSlider.AbsoluteSize.X, 0, 1)
+    -- Map rel 0..1 to FOV range 20..600 (adjust if needed)
+    local f = math.floor(20 + rel * (600 - 20))
+    cfg.FOV = f
+    fovLabel.Text = "FOV: " .. tostring(cfg.FOV) .. " px"
+    fovFill.Size = UDim2.new(rel, 0, 1, 0)
+    fovHandle.Position = UDim2.new(rel, -9, 0.5, -9)
+end
+
+fovHandle.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
+fovSlider.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local x = input.Position.X
+        sliderUpdateFromPos(x)
+        dragging = true
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        sliderUpdateFromPos(input.Position.X)
+    end
+end)
+
+-- Center / Reset
+centerBtn.MouseButton1Click:Connect(function()
+    crosshair.Position = UDim2.new(0.5, 0, 0.5, 0)
+end)
+resetBtn.MouseButton1Click:Connect(function()
+    cfg.FOV = 120
+    cfg.Smoothness = 0.28
+    fovLabel.Text = "FOV: "..cfg.FOV.." px"
+    fovFill:TweenSize(UDim2.new(cfg.FOV/600,0,1,0), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.18, true)
+    fovHandle:TweenPosition(UDim2.new(cfg.FOV/600, -9, 0.5, -9), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.18, true)
+end)
+
+-- Crosshair drag (mobile friendly)
+local chDragging = false
+local chDragStart = Vector2.new()
+local chOrig = Vector2.new()
+crosshair.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        chDragging = true
+        chDragStart = Vector2.new(input.Position.X, input.Position.Y)
+        local absPos = crosshair.AbsolutePosition + crosshair.AbsoluteSize/2
+        chOrig = Vector2.new(absPos.X, absPos.Y)
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then chDragging = false end
+        end)
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if chDragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+        local delta = Vector2.new(input.Position.X, input.Position.Y) - chDragStart
+        local newPos = chOrig + delta
+        local sx, sy = Camera.ViewportSize.X, Camera.ViewportSize.Y
+        newPos = Vector2.new(math.clamp(newPos.X, 10, sx-10), math.clamp(newPos.Y, 10, sy-10))
+        crosshair.Position = UDim2.new(0, newPos.X, 0, newPos.Y)
+    end
+end)
+
+-- Desktop key toggle (optional)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == cfg.AimKey then
+        setEnabled(true)
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == cfg.AimKey then
+        setEnabled(false)
+    end
+end)
+
+-- ===== AIMBOT CORE (same logic as before, adapted to crosshair) =====
+local function isValidTarget(p)
+    if not p or not p.Character then return false end
+    local humanoid = p.Character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then return false end
+    if cfg.TeamCheck and LocalPlayer.Team and p.Team and LocalPlayer.Team == p.Team then
+        return false
+    end
+    return true
+end
+
+local function predictPosition(part, origin)
+    if not cfg.Prediction then return part.Position end
+    local vel = part.AssemblyLinearVelocity or Vector3.new()
+    local dist = (part.Position - origin).Magnitude
+    local t = 0
+    if cfg.ProjectileSpeed > 0 then t = dist / cfg.ProjectileSpeed end
+    return part.Position + vel * t
+end
+
+local function getAimReferencePos()
+    local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+    if isMobile then
+        return Vector2.new(
+            crosshair.AbsolutePosition.X + crosshair.AbsoluteSize.X/2,
+            crosshair.AbsolutePosition.Y + crosshair.AbsoluteSize.Y/2
+        )
+    else
+        local mouse = LocalPlayer:GetMouse()
+        return Vector2.new(mouse.X, mouse.Y)
+    end
+end
+
+local function getClosestTarget()
+    local best = nil
+    local bestDist = cfg.FOV
+    local originChar = LocalPlayer.Character
+    if not originChar or not originChar:FindFirstChild("HumanoidRootPart") then return nil end
+    local originPos = originChar.HumanoidRootPart.Position
+    local ref = getAimReferencePos()
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and isValidTarget(p) then
+            local part = p.Character:FindFirstChild(cfg.TargetPart) or p.Character:FindFirstChild("HumanoidRootPart")
+            if part then
+                local vp = Camera:WorldToViewportPoint(part.Position)
+                if vp.Z > 0 then
+                    local screenPos = Vector2.new(vp.X, vp.Y)
+                    local dist = (screenPos - ref).Magnitude
+                    if dist <= cfg.FOV and dist < bestDist then
+                        bestDist = dist
+                        best = p
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function aimAtPart(part)
+    if not part or not Camera then return end
+    local origin = Camera.CFrame.Position
+    local target = predictPosition(part, origin)
+    local desired = (target - origin).Unit
+    local current = Camera.CFrame.LookVector
+    local alpha = math.clamp(cfg.Smoothness, 0.01, 1)
+    local newLook = current:Lerp(desired, alpha)
+    Camera.CFrame = CFrame.new(origin, origin + newLook)
+end
+
+RunService.RenderStepped:Connect(function()
+    -- update fov handle if UI updated by code
+    -- (nothing heavy here)
+    if cfg.Enabled then
+        local targetPlayer = getClosestTarget()
+        if targetPlayer and targetPlayer.Character then
+            local part = targetPlayer.Character:FindFirstChild(cfg.TargetPart) or targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if part then
+                aimAtPart(part)
+            end
+        end
+    end
+end)
+
+-- Init: center crosshair, small fade-in
+crosshair.Position = UDim2.new(0.5, 0, 0.5, 0)
+TweenService:Create(crosshair, TweenInfo.new(0.25), {Size = UDim2.new(0,32,0,32)}):Play()
+setEnabled(false)
+
+-- Print guidance
+print("[AimbotUI] Modern UI loaded (for local testing only). Use the toggle to enable. Drag the crosshair on mobile.")
